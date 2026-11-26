@@ -29,19 +29,35 @@ class PornhubProvider : SiteProvider {
     }
 
     override suspend fun resolveStream(videoPageUrl: String): StreamSource {
-        val html = SafeFetch.fetchText(url = videoPageUrl, referer = "$baseUrl/")
+        val desktopUrl = videoPageUrl.replace("://m.pornhub.com", "://www.pornhub.com")
+        val html = SafeFetch.fetchText(
+            url = desktopUrl,
+            referer = "$baseUrl/",
+            extraHeaders = mapOf("User-Agent" to NetworkClient.DESKTOP_USER_AGENT)
+        )
 
-        val streamRegex = Regex("""(https?:\\?/\\?/[^"'\s\\]+\.(?:m3u8|mp4)(?:\?[^"'\s\\]*)?)""")
-        val streamUrl = streamRegex.findAll(html)
-            .map { it.groupValues[1].replace("\\/", "/") }
-            .firstOrNull { !it.contains("preview", ignoreCase = true) }
+        // Match JSON-escaped or plain videoUrl / quality_720p / .m3u8 / .mp4 definitions
+        val jsonUrlRegex = Regex(""""(?:videoUrl|quality_1080p|quality_720p|quality_480p)"\s*:\s*"(https?:\\?/\\?/[^"]+)"""")
+        val genericStreamRegex = Regex("""(https?:\\?/\\?/[^"'\s\\<>]+\.(?:m3u8|mp4)(?:\?[^"'\s\\<>]*)?)""")
 
-        return if (!streamUrl.isNullOrBlank()) {
+        val candidates = (
+            jsonUrlRegex.findAll(html).map { it.groupValues[1].replace("\\/", "/") } +
+                genericStreamRegex.findAll(html).map { it.groupValues[1].replace("\\/", "/") }
+            ).filter { url ->
+            url.startsWith("http") &&
+                !url.contains("preview", ignoreCase = true) &&
+                !url.contains("thumb", ignoreCase = true)
+        }.toList()
+
+        val bestUrl = candidates.firstOrNull { it.contains("720", ignoreCase = true) || it.contains(".m3u8") }
+            ?: candidates.firstOrNull()
+
+        return if (!bestUrl.isNullOrBlank()) {
             StreamSource.DirectStream(
-                url = streamUrl,
+                url = bestUrl,
                 headers = mapOf(
-                    "Referer" to videoPageUrl,
-                    "User-Agent" to NetworkClient.DEFAULT_USER_AGENT
+                    "Referer" to desktopUrl,
+                    "User-Agent" to NetworkClient.DESKTOP_USER_AGENT
                 )
             )
         } else {

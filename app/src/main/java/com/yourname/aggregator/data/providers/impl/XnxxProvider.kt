@@ -16,7 +16,7 @@ class XnxxProvider : SiteProvider {
     override val baseUrl: String = "https://www.xnxx.com"
 
     override suspend fun search(query: String, page: Int): List<VideoItem> {
-        val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
+        val encoded = URLEncoder.encode(query.trim(), StandardCharsets.UTF_8.toString())
         val zeroBasedPage = (page - 1).coerceAtLeast(0)
         val url = if (zeroBasedPage == 0) {
             "$baseUrl/search/$encoded"
@@ -29,7 +29,11 @@ class XnxxProvider : SiteProvider {
 
     override suspend fun getTrending(page: Int): List<VideoItem> {
         val zeroBasedPage = (page - 1).coerceAtLeast(0)
-        val url = "$baseUrl/todays-selection/$zeroBasedPage"
+        val url = if (zeroBasedPage == 0) {
+            "$baseUrl/todays-selection"
+        } else {
+            "$baseUrl/todays-selection/$zeroBasedPage"
+        }
         val doc = SafeFetch.fetchDocument(url = url, referer = "$baseUrl/")
         return parseCards(doc)
     }
@@ -59,9 +63,10 @@ class XnxxProvider : SiteProvider {
     private fun parseCards(doc: Document): List<VideoItem> {
         val cards = doc.select("div.mozaique div.thumb-block, div.thumb-block")
         return cards.mapNotNull { card ->
-            val titleLink = card.selectFirst("div.thumb-under p a, p a[title]") ?: return@mapNotNull null
+            val titleLink = card.selectFirst("div.thumb-under p a, p.title a, p a[title]")
+                ?: return@mapNotNull null
             val pageUrl = titleLink.absUrl("href")
-            if (pageUrl.isBlank() || !pageUrl.contains("/video-")) return@mapNotNull null
+            if (pageUrl.isBlank() || !pageUrl.contains("/video")) return@mapNotNull null
 
             val title = titleLink.attr("title").ifBlank { titleLink.text() }.trim()
             if (title.isBlank()) return@mapNotNull null
@@ -69,11 +74,12 @@ class XnxxProvider : SiteProvider {
             val imgEl = card.selectFirst("div.thumb img, img")
             val thumb = listOf("data-src", "src")
                 .firstNotNullOfOrNull { attr ->
-                    imgEl?.absUrl(attr)?.takeIf { it.startsWith("http") }
+                    imgEl?.absUrl(attr)?.takeIf { it.startsWith("http") && !it.contains("lightbox") }
                 }.orEmpty()
 
             val metaText = card.selectFirst("p.metadata")?.text().orEmpty()
-            val durationText = Regex("""(\d+(?::\d{2}){1,2})""").find(metaText)?.groupValues?.getOrNull(1).orEmpty()
+            val durationText = Regex("""(\d+(?::\d{2}){1,2})""")
+                .find(metaText)?.groupValues?.getOrNull(1).orEmpty()
 
             val rawId = card.attr("data-id")
                 .ifBlank { pageUrl.hashCode().toUInt().toString(16) }

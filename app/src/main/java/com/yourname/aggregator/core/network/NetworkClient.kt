@@ -12,6 +12,9 @@ object NetworkClient {
     const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 15; SM-G998U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
+    const val DESKTOP_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
     /** Lightweight session cookie store so age-gate cookies persist during a session. */
     private val memoryCookieJar = object : CookieJar {
         private val store = ConcurrentHashMap<String, List<Cookie>>()

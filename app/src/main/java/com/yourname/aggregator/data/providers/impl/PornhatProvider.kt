@@ -29,18 +29,33 @@ class PornhatProvider : SiteProvider {
     }
 
     override suspend fun resolveStream(videoPageUrl: String): StreamSource {
-        val html = SafeFetch.fetchText(url = videoPageUrl, referer = "$baseUrl/")
-        val streamRegex = Regex("""(https?:\\?/\\?/[^"'\s\\]+\.(?:m3u8|mp4)(?:\?[^"'\s\\]*)?)""")
-        val streamUrl = streamRegex.findAll(html)
-            .map { it.groupValues[1].replace("\\/", "/") }
-            .firstOrNull { !it.contains("preview", ignoreCase = true) }
+        val html = SafeFetch.fetchText(
+            url = videoPageUrl,
+            referer = "$baseUrl/",
+            extraHeaders = mapOf("User-Agent" to NetworkClient.DESKTOP_USER_AGENT)
+        )
 
-        return if (!streamUrl.isNullOrBlank()) {
+        // KVS player used by PornHat stores video_url / video_alt_url in flashvars
+        val kvsRegex = Regex("""video_(?:alt_)?url\d*\s*:\s*['"](https?://[^'"]+)['"]""")
+        val genericRegex = Regex("""(https?:\\?/\\?/[^"'\s\\<>]+\.(?:m3u8|mp4)(?:\?[^"'\s\\<>]*)?)""")
+
+        val candidates = (
+            kvsRegex.findAll(html).map { it.groupValues[1] } +
+                genericRegex.findAll(html).map { it.groupValues[1].replace("\\/", "/") }
+            ).filter { url ->
+            url.startsWith("http") &&
+                !url.contains("preview", ignoreCase = true) &&
+                !url.contains("thumb", ignoreCase = true)
+        }.toList()
+
+        val bestUrl = candidates.firstOrNull()
+
+        return if (!bestUrl.isNullOrBlank()) {
             StreamSource.DirectStream(
-                url = streamUrl,
+                url = bestUrl,
                 headers = mapOf(
                     "Referer" to videoPageUrl,
-                    "User-Agent" to NetworkClient.DEFAULT_USER_AGENT
+                    "User-Agent" to NetworkClient.DESKTOP_USER_AGENT
                 )
             )
         } else {

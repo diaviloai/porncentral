@@ -29,19 +29,34 @@ class XHamsterProvider : SiteProvider {
     }
 
     override suspend fun resolveStream(videoPageUrl: String): StreamSource {
-        val html = SafeFetch.fetchText(url = videoPageUrl, referer = "$baseUrl/")
+        val desktopUrl = videoPageUrl.replace("://m.xhamster.com", "://xhamster.com")
+        val html = SafeFetch.fetchText(
+            url = desktopUrl,
+            referer = "$baseUrl/",
+            extraHeaders = mapOf("User-Agent" to NetworkClient.DESKTOP_USER_AGENT)
+        )
 
-        val streamRegex = Regex("""(https?:\\?/\\?/[^"'\s\\]+\.(?:m3u8|mp4)(?:\?[^"'\s\\]*)?)""")
-        val streamUrl = streamRegex.findAll(html)
-            .map { it.groupValues[1].replace("\\/", "/") }
-            .firstOrNull { !it.contains("preview", ignoreCase = true) && !it.contains("thumb", ignoreCase = true) }
+        val qualityRegex = Regex(""""(?:720p|480p|1080p|240p|url|fallback)"\s*:\s*"(https?:\\?/\\?/[^"]+\.(?:m3u8|mp4)[^"]*)"""")
+        val genericRegex = Regex("""(https?:\\?/\\?/[^"'\s\\<>]+\.(?:m3u8|mp4)(?:\?[^"'\s\\<>]*)?)""")
 
-        return if (!streamUrl.isNullOrBlank()) {
+        val candidates = (
+            qualityRegex.findAll(html).map { it.groupValues[1].replace("\\/", "/") } +
+                genericRegex.findAll(html).map { it.groupValues[1].replace("\\/", "/") }
+            ).filter { url ->
+            url.startsWith("http") &&
+                !url.contains("preview", ignoreCase = true) &&
+                !url.contains("thumb", ignoreCase = true)
+        }.toList()
+
+        val bestUrl = candidates.firstOrNull { it.contains(".m3u8") || it.contains("720p") }
+            ?: candidates.firstOrNull()
+
+        return if (!bestUrl.isNullOrBlank()) {
             StreamSource.DirectStream(
-                url = streamUrl,
+                url = bestUrl,
                 headers = mapOf(
-                    "Referer" to videoPageUrl,
-                    "User-Agent" to NetworkClient.DEFAULT_USER_AGENT
+                    "Referer" to desktopUrl,
+                    "User-Agent" to NetworkClient.DESKTOP_USER_AGENT
                 )
             )
         } else {
