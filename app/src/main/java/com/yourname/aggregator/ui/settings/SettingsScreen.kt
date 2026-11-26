@@ -16,20 +16,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +44,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yourname.aggregator.AppContainer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -54,8 +64,11 @@ fun SettingsScreen(
     val preferences by viewModel.savedPreferences.collectAsStateWithLifecycle()
     val providers = remember { container.providerRegistry.getAll() }
     val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
 
     var keywordInput by remember { mutableStateOf("") }
+    var isTestingProviders by remember { mutableStateOf(false) }
+    val providerStatuses = remember { mutableStateMapOf<String, String>() }
 
     val submitKeyword = {
         if (keywordInput.isNotBlank()) {
@@ -144,14 +157,57 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
-            // 2. Registered Providers Overview
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Configured Site Providers (${providers.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
+            // 2. Registered Providers Overview & Diagnostics
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Site Providers (${providers.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    OutlinedButton(
+                        enabled = !isTestingProviders,
+                        onClick = {
+                            scope.launch {
+                                isTestingProviders = true
+                                providerStatuses.clear()
+                                withContext(Dispatchers.IO) {
+                                    providers.map { provider ->
+                                        async {
+                                            val status = withTimeoutOrNull(10_000L) {
+                                                runCatching {
+                                                    val items = provider.getTrending(1)
+                                                    "OK (${items.size} items)"
+                                                }.getOrElse { err ->
+                                                    "Error: ${err.message ?: err.javaClass.simpleName}"
+                                                }
+                                            } ?: "Timed out (10s)"
+                                            providerStatuses[provider.id] = status
+                                        }
+                                    }.awaitAll()
+                                }
+                                isTestingProviders = false
+                            }
+                        }
+                    ) {
+                        if (isTestingProviders) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text("Test All Sites")
+                        }
+                    }
+                }
+
                 providers.forEach { provider ->
+                    val status = providerStatuses[provider.id]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -159,7 +215,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = provider.displayName,
                                 style = MaterialTheme.typography.bodyLarge
@@ -169,6 +225,19 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (status != null) {
+                                Text(
+                                    text = status,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (status.startsWith("OK (0")) {
+                                        MaterialTheme.colorScheme.error
+                                    } else if (status.startsWith("OK")) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    }
+                                )
+                            }
                         }
                     }
                 }

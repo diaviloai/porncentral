@@ -3,6 +3,7 @@ package com.yourname.aggregator.ui.player
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -39,7 +40,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -102,6 +105,9 @@ fun PlayerScreen(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+
+    // Prevents re-triggering stream sniffing if ExoPlayer fell back to WebView after an error
+    var sniffAttempted by remember(video.id) { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -185,6 +191,11 @@ fun PlayerScreen(
                     is StreamSource.WebFallback -> {
                         AdBlockingWebView(
                             pageUrl = source.pageUrl,
+                            enableStreamSniffing = !sniffAttempted && video.sourceId != "tsumino",
+                            onStreamSniffed = { streamUrl, headers ->
+                                sniffAttempted = true
+                                viewModel.promoteToDirectStream(streamUrl, headers)
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding)
@@ -311,6 +322,8 @@ private fun VideoDetailsSection(video: VideoItem) {
 @Composable
 private fun AdBlockingWebView(
     pageUrl: String,
+    enableStreamSniffing: Boolean,
+    onStreamSniffed: (String, Map<String, String>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val allowedRootDomain = remember(pageUrl) {
@@ -325,6 +338,9 @@ private fun AdBlockingWebView(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
 
+                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -338,6 +354,8 @@ private fun AdBlockingWebView(
                 webChromeClient = WebChromeClient()
 
                 webViewClient = object : WebViewClient() {
+                    private var handedOff = false
+
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
                         request: WebResourceRequest?
@@ -354,13 +372,15 @@ private fun AdBlockingWebView(
                         view: WebView?,
                         request: WebResourceRequest?
                     ): WebResourceResponse? {
+                        val rawUrl = request?.url?.toString().orEmpty()
                         val host = request?.url?.host?.lowercase().orEmpty()
+
                         val isBlockedAd = BLOCKED_AD_HOSTS.any { blocked ->
                             host == blocked || host.endsWith(".$blocked")
                         }
 
-                        return if (isBlockedAd) {
-                            WebResourceResponse(
+                        if (isBlockedAd) {
+                            return WebResourceResponse(
                                 "text/plain",
                                 "utf-8",
                                 204,
@@ -368,9 +388,28 @@ private fun AdBlockingWebView(
                                 emptyMap(),
                                 ByteArrayInputStream(ByteArray(0))
                             )
-                        } else {
-                            super.shouldInterceptRequest(view, request)
                         }
+
+                        if (enableStreamSniffing && !handedOff && isPlayableStreamUrl(rawUrl)) {
+                            handedOff = true
+                            val cookies = runCatching {
+                                CookieManager.getInstance().getCookie(pageUrl)
+                            }.getOrNull().orEmpty()
+
+                            val headers = buildMap {
+                                put("Referer", pageUrl)
+                                put("User-Agent", NetworkClient.DEFAULT_USER_AGENT)
+                                if (cookies.isNotBlank()) {
+                                    put("Cookie", cookies)
+                                }
+                            }
+
+                            view?.post {
+                                onStreamSniffed(rawUrl, headers)
+                            }
+                        }
+
+                        return super.shouldInterceptRequest(view, request)
                     }
                 }
 
@@ -379,6 +418,16 @@ private fun AdBlockingWebView(
         },
         modifier = modifier
     )
+}
+
+private fun isPlayableStreamUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    if (!lower.startsWith("http")) return false
+    if (lower.contains("preview") || lower.contains("thumb") || lower.contains("sprite") || lower.contains("banner")) {
+        return false
+    }
+    val path = lower.substringBefore("?")
+    return path.endsWith(".m3u8") || path.endsWith(".mp4")
 }
 
 private fun extractRootDomain(host: String): String {

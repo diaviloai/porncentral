@@ -43,6 +43,19 @@ class PlayerViewModel(
         }
     }
 
+    /** Called when the WebView intercepts a live .m3u8 or .mp4 stream URL during page load. */
+    fun promoteToDirectStream(streamUrl: String, headers: Map<String, String>) {
+        val current = (_uiState.value as? PlayerUiState.Ready)?.source
+        if (current is StreamSource.DirectStream) return
+
+        _uiState.value = PlayerUiState.Ready(
+            StreamSource.DirectStream(
+                url = streamUrl,
+                headers = headers
+            )
+        )
+    }
+
     fun switchToWebFallback() {
         _uiState.value = PlayerUiState.Ready(StreamSource.WebFallback(video.pageUrl))
     }
