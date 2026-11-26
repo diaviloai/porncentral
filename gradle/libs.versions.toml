@@ -1,20 +1,22 @@
 [versions]
-agp = "9.0.1"
-kotlin = "2.3.20"
-ksp = "2.3.20-1.0.31"
-composeBom = "2026.11.01"
-okhttp = "5.5.0"
-jsoup = "1.24.1"
-room = "2.8.4"
-media3 = "1.11.1"
-coil = "3.6.3"
-coroutines = "1.11.0"
-navigationCompose = "2.9.0"
-lifecycle = "2.9.0"
+agp = "8.7.3"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.27"
+composeBom = "2024.12.01"
+activityCompose = "1.9.3"
+okhttp = "4.12.0"
+jsoup = "1.18.3"
+room = "2.6.1"
+media3 = "1.5.1"
+coil = "3.0.4"
+coroutines = "1.9.0"
+navigationCompose = "2.8.5"
+lifecycle = "2.8.7"
 
 [libraries]
 # Compose BOM & UI
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
@@ -46,5 +48,6 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
